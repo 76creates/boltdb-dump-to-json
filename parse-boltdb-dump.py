@@ -13,11 +13,6 @@ DELIMITER="  "
 DB={}
 # levelized stack of the reference points in the DB
 STACK=[DB]
-# used for calculating lvl of the DB
-LVL=0
-# these two are used for fetching keys and values
-GETKEY=False
-KEYSTACK=""
 
 # prints debug messages, does not include step_debugger and vice versa
 DEBUG = False
@@ -49,56 +44,75 @@ def getCursor(lvl:int) -> dict:
     else:
       raise AssertionError(f"stack went wild: {STACK}; lvl: {lvl}")
 
-ln = 0 # used for numbering lines, mostly for debug
-for l in stdin:
-  if STEP_DEBUG: 
-    print(f"[+++] status for line {ln}\n{DB}")
-  ln += 1
-  if DEBUG: print(f"[+] processing line {ln}")
-  line_lvl = findLvl(l, 1)
-  if DEBUG: print(f"[+] line has indentation lvl of {line_lvl}")
-  stripped = l.rstrip()[len(DELIMITER)*line_lvl-len(DELIMITER):]
-  if DEBUG: print(f"[+] stripped like is: {stripped}")
 
-  # this here is to guard regarding badly formatted database dumps
-  if line_lvl==1:
-    if not isTableKey(stripped):
-      raise AssertionError(f"expected table key at line {ln}: {stripped}")
+def parseInput(inp) -> dict:
+  # used for calculating lvl of the DB
+  LVL=0
+  # these two are used for fetching keys and values
+  GETKEY=False
+  KEYSTACK=""
+  ln = 0 # used for numbering lines, mostly for debug
+  for l in inp:
+    # here we check if bytes are feed, shell sorts this out but
+    # python has some issues when it comes to password byte strings
+    # this is safest way, everybody is happy
+    if type(l) == bytes:
+      try:
+        l = l.decode("utf-8")
+      except UnicodeDecodeError:
+        l = l.decode("ISO-8859-1")
 
-  # guarding some unexpected errors
-  if LVL < 1 and line_lvl != 1 and isTableKey(stripped):
-    raise AssertionError("file is not indented good or is invalid")
+    if STEP_DEBUG: 
+      print(f"[+++] status for line {ln}\n{DB}")
+    ln += 1
+    if DEBUG: print(f"[+] processing line {ln}")
+    line_lvl = findLvl(l, 1)
+    if DEBUG: print(f"[+] line has indentation lvl of {line_lvl}")
+    stripped = l.rstrip()[len(DELIMITER)*line_lvl-len(DELIMITER):]
+    if DEBUG: print(f"[+] stripped like is: {stripped}")
 
-  # table key handling
-  if isTableKey(stripped):
-    if DEBUG: print("[+] found table key")
-    cursor = getCursor(line_lvl)
-    k = stripped[1:-1]
-    cursor[k]={}
-    STACK.append(cursor[k])
-    LVL += 1
-  # key value handling
-  else:
-    if not GETKEY:
+    # this here is to guard regarding badly formatted database dumps
+    if line_lvl==1:
+      if not isTableKey(stripped):
+        raise AssertionError(f"expected table key at line {ln}: {stripped}")
+
+    # guarding some unexpected errors
+    if LVL < 1 and line_lvl != 1 and isTableKey(stripped):
+      raise AssertionError("file is not indented good or is invalid")
+
+    # table key handling
+    if isTableKey(stripped):
+      if DEBUG: print("[+] found table key")
       cursor = getCursor(line_lvl)
-      k = stripped
+      k = stripped[1:-1]
       cursor[k]={}
       STACK.append(cursor[k])
-      GETKEY=True
-      KEYSTACK=k
       LVL += 1
+    # key value handling
     else:
-      v = stripped
-      try: 
-        v_formatted = loads(v)
-      except:
-        if DEBUG: print(f"[+] could not convert to dictionary, line: {v}")
-        v_formatted = v
-      cursor = getCursor(line_lvl-1)
-      cursor[KEYSTACK]=v_formatted
-      STACK.append(cursor)
-      GETKEY=False
-      KEYSTACK=""
-      LVL -= 1
-      
-print(dumps(DB))
+      if not GETKEY:
+        cursor = getCursor(line_lvl)
+        k = stripped
+        cursor[k]={}
+        STACK.append(cursor[k])
+        GETKEY=True
+        KEYSTACK=k
+        LVL += 1
+      else:
+        v = stripped
+        try: 
+          v_formatted = loads(v)
+        except:
+          if DEBUG: print(f"[+] could not convert to dictionary, line: {v}")
+          v_formatted = v
+        cursor = getCursor(line_lvl-1)
+        cursor[KEYSTACK]=v_formatted
+        STACK.append(cursor)
+        GETKEY=False
+        KEYSTACK=""
+        LVL -= 1
+
+  return DB
+
+if __name__ == "__main__":
+  print (dumps(parseInput(stdin)))
